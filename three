@@ -1,0 +1,77 @@
+export function applySpecificMode({state, modeInfo, rows, products, tree}) {
+    let {type, request} = modeInfo
+    let newProducts = _.cloneDeep(products);
+    let newRows = _.cloneDeep(rows);
+    let newTree = _.cloneDeep(tree);
+    let formulaSummarised = state.additionalData.formulaSummarised;
+    let feedbacks = state.additionalData.feedbacks;
+
+    switch (type) {
+        case TableModeType.sorting: {
+            let additionalInfo = {formulaSummarised, feedbacks}
+            newTree = sortRows(request, newTree, additionalInfo, state);
+            break;
+        }
+        case TableModeType.search: {
+            const searchResult = TreeBuilderLib.searchRowsAndProducts({
+                products: newProducts,
+                rows: newRows,
+                searchParam: request.searchParam
+            })
+            newProducts = searchResult.products;
+            newRows = searchResult.rows;
+            newTree = TreeBuilderLib.build({products: newProducts, rows: newRows});
+            break;
+        }
+        case TableModeType.filters: {
+            let stateInfo = {feedbacks, formulaData: formulaSummarised}
+            let filteredRows = FilterBuilder.filterRows({
+                rows: [...rows, ...products],
+                filterRequestArray: request,
+                stateInfo,
+            })
+            newProducts = filteredRows.products;
+            newRows = filteredRows.rows;
+            newTree = TreeBuilderLib.build({products: newProducts, rows: newRows});
+            break;
+        }
+        case TableModeType.hierarchy: {
+            let columnGroupHierarchy;
+            let selectedColumns;
+            if (_.isArray(request.id)) {
+                columnGroupHierarchy = _.filter(state.tableData.columnMain.current.columns, item =>_.includes(request.id, item._id));
+                selectedColumns = _.chain(state.tableData.columnMain.current.columns)
+                    .filter((columnGroup) => _.includes(request.id, columnGroup._id))
+                    .map(columnGroup => columnGroup.columns).flattenDeep().value();
+            } else {
+                columnGroupHierarchy = _.filter(state.tableData.columnMain.current.columns, item => item._id === request.id);
+                selectedColumns = !_.isEmpty(columnGroupHierarchy) && [...columnGroupHierarchy[0].columns]
+            }
+
+            if (_.isNumber(request.type)) {
+                newTree = TreeBuilder.hierarchySpecificModeTypesBuild(
+                    {
+                        hierarchyModeType: request.type,
+                        rows,
+                        products,
+                        level: request.level,
+                    });
+            } else {
+                newTree = TreeBuilder.hierarchyBuild(
+                    {
+                        columnGroups: columnGroupHierarchy,
+                        products: selectedColumns,
+                        rows,
+                        level: request.level
+                    });
+            }
+            break;
+        }
+    }
+    return {
+        ...modeInfo,
+        rows: newRows,
+        products: newProducts,
+        tree: newTree,
+    }
+}
