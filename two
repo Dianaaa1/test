@@ -1,0 +1,189 @@
+import Layout from 'containers/Layout';
+import React, {useEffect, useMemo, useState} from 'react';
+import cn from 'classnames';
+import classes from './PricingPage.module.scss';
+import Upgrade from '../../assets/img/pricing/upgradePricing.svg';
+import Contact from '../../assets/img/pricing/contactPricing.svg';
+import PricingTable from './PricingTable';
+import {useDispatch, useSelector} from "react-redux";
+import {
+    createPortalAction,
+    createSessionAction,
+    getBillingProductsWithPriceAction,
+} from "../../store/actions";
+import {IRootReducer} from "../../store/reducers";
+import * as _ from 'lodash';
+import {description} from "./price.config";
+import {getWorkspaces} from "../../store/actions/workspace";
+import {Tariff} from "../../interfaces/billing";
+import Icon from "../../components/Icon";
+import {Link} from "react-router-dom";
+import {CircularProgress} from "@material-ui/core";
+import {SegmentEvent, triggerSegmentEvent} from "../../utils/segment";
+import {useSegmentGeneralProperties} from "../../utils/handlers";
+
+export enum TariffPriceStatus {
+    current,
+    lower,
+    upper
+}
+
+const PricingPage = () => {
+    const dispatch = useDispatch();
+    const prices = useSelector((store: IRootReducer) => store.billing.prices);
+    const workspaceId = useSelector((store: IRootReducer) => store.tableDataParams.tableData._id);
+    const properties = useSegmentGeneralProperties();
+    const [loader, setLoading] = useState<any>(false);
+    const [upgradedTariff, setUpgradedTariff] = useState<any>();
+    const plan = useSelector((store: IRootReducer) => store.billing.plan)
+
+    useEffect(() => {
+        dispatch(getBillingProductsWithPriceAction())
+    }, [dispatch])
+
+    useEffect(() => {
+        if (_.isEmpty(workspaceId)) {
+            dispatch(getWorkspaces())
+        }
+    }, [workspaceId, dispatch])
+
+    const upgradeTheAccount = async (priceId) => {
+        let productName = _.get(_.find(prices, ['id', priceId]), 'productName')
+        let eventProperties = {
+            current_tier: plan && plan.tariff,
+            tier_selected: productName || '',
+        }
+        triggerSegmentEvent(SegmentEvent.payment_page_visited, properties, eventProperties)
+
+        if (!_.isEmpty(plan.subscriptionId) && plan.status !== 'canceled') {
+            dispatch(createPortalAction())
+        } else {
+            dispatch(createSessionAction({priceId}))
+        }
+    }
+
+    let tariffsInfo = useMemo(() => {
+        let sortedPrices = _.sortBy(prices, ['unit_amount'])
+        let currentPriceIndex = _.findIndex(sortedPrices, ['productDescription', plan.description])
+        return _.map(sortedPrices, (price, index) => {
+            let status;
+            if (currentPriceIndex === -1 || currentPriceIndex < index) {
+                status = TariffPriceStatus.upper
+            } else if (currentPriceIndex === index) {
+                status = TariffPriceStatus.current
+            } else {
+                status = TariffPriceStatus.lower
+            }
+            return {
+                ...price,
+                description: description[price.productDescription],
+                status: status,
+            }
+        })
+    }, [prices, plan.description])
+    const openCrispChat = ()=>{
+        let button: any = _.get(document.getElementsByClassName('cc-7doi cc-1ada'), [0]);
+        if (button)
+            button.click();
+    }
+
+
+    let cardBlock = (priceInfo) => {
+        return (
+            <div
+                className={cn(
+                    classes.card,
+                    (_.get(priceInfo, ['status']) === TariffPriceStatus.current && classes.cardFocused) ||
+                    (priceInfo.productDescription === Tariff.premium && classes.cardActive)
+                )}
+                key={priceInfo.id}
+            >
+                <div className={classes.markStatus}>
+                    {_.get(priceInfo, ['status']) === TariffPriceStatus.current ? "Current plan" : (
+                        priceInfo.productDescription === Tariff.premium && "Most Popular"
+                    )}
+                </div>
+                <div className={classes.cardTitle}>{priceInfo.productName}</div>
+                <div className={classes.cardPrice}>
+                    <div className={classes.cardDol}>$</div>
+                    <div className={classes.titlePrice}>
+                        {_.toNumber(priceInfo.unit_amount) / 100}
+                    </div>
+                </div>
+                <div className={classes.cardBottomTitle}>Per month, Including:</div>
+                {_.map(priceInfo.description, block => {
+                    return <div key={block} className={classes.cardText}>{block}</div>
+                })}
+                {_.get(priceInfo, ['status']) === TariffPriceStatus.upper &&
+                (
+                    (priceInfo.id === upgradedTariff && loader &&
+                        <CircularProgress style={{color: "#68b0ae", marginTop: '34px'}}/>) || <img
+                        onClick={() => {
+                            upgradeTheAccount(priceInfo.id)
+                            setUpgradedTariff(priceInfo.id)
+                            setLoading(true)
+                        }} className={classes.cardButton} src={Upgrade} alt=''
+                    />
+                )
+                }
+                {_.get(priceInfo, ['status']) === TariffPriceStatus.current &&
+                <Icon name="icon-check" size="lg" className={classes.icon}/>}
+            </div>
+        )
+    }
+
+
+    return (
+        <Layout>
+            <Link to='/'>
+                <Icon className={classes.close} name="close" size="md"/>
+            </Link>
+            <div className={classes.wrapper}>
+                <div className={classes.titleUp}>Simple pricing for everyone</div>
+                <div className={classes.titleBottom}>Pricing built for businesses of all sizes.</div>
+                <div className={classes.wrapperPricing}>
+                    {!_.isEmpty(prices) &&
+                    <div className={classes.wrapperCard}>
+                        <div className={cn(classes.card, plan.description === Tariff.free && classes.cardFocused)}>
+                            <div
+                                className={classes.markStatus}>{plan.description === Tariff.free && "Current plan"}</div>
+                            <div className={classes.cardTitle}>Free</div>
+                            <div className={classes.cardPrice}>
+                                <div className={classes.cardDol}>$</div>
+                                <div className={classes.titlePrice}>0</div>
+                            </div>
+                            <div className={classes.cardBottomTitle}>Free Forvever, Including:</div>
+                            {_.map(description[Tariff.free], block => {
+                                return <div key={block} className={classes.cardText}>{block}</div>
+                            })}
+                            {plan.description === Tariff.free &&
+                            <Icon name="icon-check" size="lg" className={classes.icon}/>
+                            }
+                        </div>
+                        {_.map(tariffsInfo, (priceInfo) => {
+                            return cardBlock(priceInfo)
+                        })}
+                        <div className={classes.card}>
+                            <div className={classes.markStatus}/>
+                            <div className={classes.cardTitle}>Enterprise</div>
+                            <div className={classes.titleCustomPrice}>Custom Pricing</div>
+
+                            {_.map(description[Tariff.enterprise], block => {
+                                return <div key={block} className={classes.cardText}>{block}</div>
+                            })}
+                            <img onClick={openCrispChat} className={classes.cardButton} src={Contact} alt=''/>
+                        </div>
+                    </div>}
+                    <div className={classes.wrapperTable}>
+                        <PricingTable/>
+                    </div>
+                </div>
+                <div className={classes.wrapperBottom}>
+                    <div className={classes.needHelp}>Need help?</div>
+                    <div className={classes.contactUs}>Contact us</div>
+                </div>
+            </div>
+        </Layout>
+    )
+}
+export default PricingPage;
