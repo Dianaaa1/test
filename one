@@ -1,0 +1,48 @@
+export function applyView({viewRequest, state}) {
+    let defaultRows = state.tableData.main.default.rows;
+    let defaultProducts = state.tableData.main.default.products;
+    let defaultTree = state.tableData.main.default.tree;
+    let error = false;
+
+    let view = [];
+
+
+    let currentRows = _.cloneDeep(defaultRows);
+    let currentProducts = _.cloneDeep(defaultProducts);
+    let currentTree = _.cloneDeep(defaultTree);
+
+    if (!_.isEmpty(viewRequest)) {
+        let modesRequest = _.sortBy(viewRequest, ['priority'])
+
+        _.forEach(modesRequest, modeInfo => {
+
+            let validMode = checkModeForException({mode: modeInfo, state});
+
+            if (validMode) {
+                let newNode = applySpecificMode({
+                    state,
+                    modeInfo,
+                    rows: currentRows,
+                    products: currentProducts,
+                    tree: currentTree,
+                })
+                view.push(newNode);
+                currentRows = newNode.rows;
+                currentProducts = newNode.products;
+                currentTree = newNode.tree
+            } else error = true;
+        })
+
+        if (!_.isEmpty(view)) {
+            let lastMode = _.last(view);
+            currentTree = lastMode.tree;
+        }
+    }
+    currentTree = TreeBuilderLib.updateTreeWithCollapsedRows(currentTree);
+    return {
+        currentRows,
+        currentProducts,
+        currentTree,
+        error
+    }
+}
